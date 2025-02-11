@@ -168,4 +168,4 @@ def handle_message(data):
     send({'username': data['username'], 'message': data['message']}, broadcast=True)  # Отправляем всем участникам
 
 if __name__ == "__main__":
-    socketio.run(app, debug=True)
+    socketio.run(app, host='0.0.0.0', port=80, debug=True)
