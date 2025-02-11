@@ -168,4 +168,5 @@ def handle_message(data):
     send({'username': data['username'], 'message': data['message']}, broadcast=True)  # Отправляем всем участникам
 
 if __name__ == "__main__":
-    socketio.run(app, debug=True)
+    # Замените '0.0.0.0' на IP-адрес вашего компьютера или оставьте '0.0.0.0', чтобы принимать соединения с любых адресов.
+    socketio.run(app, host='0.0.0.0', port=80)
