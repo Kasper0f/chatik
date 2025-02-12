@@ -80,6 +80,7 @@ def register():
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Регистрация</title>
         <style>
+            /* Стили для формы */
             body {
                 font-family: Arial, sans-serif;
                 background-color: #f0f0f0;
@@ -96,10 +97,6 @@ def register():
                 box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
                 width: 300px;
                 text-align: center;
-            }
-            h1 {
-                color: #333;
-                margin-bottom: 20px;
             }
             input[type="text"], input[type="password"] {
                 width: 100%;
@@ -181,6 +178,7 @@ def login_page():
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Вход</title>
         <style>
+            /* Стили для формы */
             body {
                 font-family: Arial, sans-serif;
                 background-color: #f0f0f0;
@@ -197,10 +195,6 @@ def login_page():
                 box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
                 width: 300px;
                 text-align: center;
-            }
-            h1 {
-                color: #333;
-                margin-bottom: 20px;
             }
             input[type="text"], input[type="password"] {
                 width: 100%;
@@ -254,7 +248,7 @@ def chat():
     if 'username' not in session:
         return redirect(url_for('login'))
 
-    return render_template_string(CHAT_TEMPLATE)
+    return render_template_string(CHAT_TEMPLATE, username=session['username'], is_admin=session['username'] == "Kasper")
 
 # Удаление старых сообщений
 def delete_old_messages():
@@ -269,7 +263,7 @@ def delete_old_messages():
 def get_messages():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("SELECT username, message, timestamp FROM messages ORDER BY timestamp ASC")
+    cursor.execute("SELECT id, username, message, timestamp FROM messages ORDER BY timestamp ASC")
     messages = cursor.fetchall()
     conn.close()
     return messages
@@ -282,6 +276,20 @@ def save_message(username, message):
                    (username, message, datetime.now()))
     conn.commit()
     conn.close()
+
+# Обновление имени пользователя в базе данных
+def update_username(old_username, new_username):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE users SET username = ? WHERE username = ?", (new_username, old_username))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Ошибка при обновлении имени: {e}")
+        return False
+    finally:
+        conn.close()
 
 # HTML-шаблон для чата
 CHAT_TEMPLATE = """
@@ -338,32 +346,100 @@ CHAT_TEMPLATE = """
         }
         .message {
             margin: 5px 0;
+            display: flex;
+            align-items: center;
         }
         .username {
             color: #2196f3;
             font-weight: bold;
+            margin-right: 10px;
+        }
+        .delete-button, .edit-button {
+            background-color: #e74c3c;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+        .edit-button {
+            background-color: #3498db;
+        }
+        .delete-button:hover, .edit-button:hover {
+            opacity: 0.8;
+        }
+        .message-actions {
+            display: none;
+            margin-left: auto;
+        }
+        .message:hover .message-actions {
+            display: flex;
+        }
+        /* Модальное окно профиля */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        .modal-content {
+            background-color: white;
+            margin: 15% auto;
+            padding: 20px;
+            border-radius: 10px;
+            width: 300px;
+            text-align: center;
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .close:hover, .close:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
         }
     </style>
 </head>
 <body>
     <h1>Простой чат</h1>
+    <button id="profile-button">Профиль</button>
     <div id="chat-box"></div>
     <input id="message-input" type="text" placeholder="Введите сообщение...">
     <button onclick="sendMessage()">Отправить</button>
 
+    <!-- Модальное окно профиля -->
+    <div id="profile-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Настройки профиля</h2>
+            <form id="update-username-form">
+                <label for="new-username">Новое имя:</label><br>
+                <input type="text" id="new-username" name="new-username" required><br><br>
+                <button type="submit">Обновить имя</button>
+            </form>
+        </div>
+    </div>
+
     <script>
         var socket = io.connect('http://' + document.domain + ':' + location.port);
         var chatBox = document.getElementById('chat-box');
-        var username = "{{ session['username'] }}";
+        var username = "{{ username }}";
+        var isAdmin = {{ is_admin | tojson }};
 
+        // При получении нового сообщения от сервера
         socket.on('message', function(data) {
-            var newMessage = document.createElement('div');
-            newMessage.className = "message";
-            newMessage.innerHTML = `<span class="username">${data.username}:</span> ${data.message}`;
-            chatBox.appendChild(newMessage);
-            chatBox.scrollTop = chatBox.scrollHeight;
+            addMessage(data.id, data.username, data.message, data.current_username, isAdmin);
         });
 
+        // Функция для отправки сообщения
         function sendMessage() {
             var messageInput = document.getElementById('message-input');
             var message = messageInput.value;
@@ -373,22 +449,122 @@ CHAT_TEMPLATE = """
             }
         }
 
+        // Добавление сообщения в чат
+        function addMessage(id, username, message, current_username, isAdmin) {
+            var newMessage = document.createElement('div');
+            newMessage.className = "message";
+            newMessage.dataset.id = id;
+
+            var messageContent = document.createElement('span');
+            messageContent.innerHTML = `<span class="username">${username}:</span> ${message}`;
+            newMessage.appendChild(messageContent);
+
+            var actionsDiv = document.createElement('div');
+            actionsDiv.className = "message-actions";
+
+            // Кнопка "Изменить" доступна только автору сообщения
+            if (username === current_username) {
+                var editButton = document.createElement('button');
+                editButton.className = "edit-button";
+                editButton.textContent = "Изменить";
+                editButton.onclick = function() {
+                    var newMessageText = prompt("Введите новое сообщение:", message);
+                    if (newMessageText && newMessageText.trim() !== '') {
+                        fetch(`/update_message/${id}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message: newMessageText })
+                        }).then(response => response.json())
+                          .then(data => {
+                              if (data.success) {
+                                  messageContent.textContent = `${username}: ${newMessageText}`;
+                              }
+                          });
+                    }
+                };
+                actionsDiv.appendChild(editButton);
+            }
+
+            // Кнопка "Удалить" доступна автору сообщения или администратору
+            if (username === current_username || isAdmin) {
+                var deleteButton = document.createElement('button');
+                deleteButton.className = "delete-button";
+                deleteButton.textContent = "Удалить";
+                deleteButton.onclick = function() {
+                    fetch(`/delete_message/${id}`, { method: 'DELETE' })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                newMessage.remove();
+                            }
+                        });
+                };
+                actionsDiv.appendChild(deleteButton);
+            }
+
+            newMessage.appendChild(actionsDiv);
+            chatBox.appendChild(newMessage);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // Загрузка сообщений при загрузке страницы
         window.onload = function() {
             fetch('/load_messages')
                 .then(response => response.json())
                 .then(data => {
                     const messages = data.messages || [];
                     messages.forEach(msg => {
-                        var newMessage = document.createElement('div');
-                        newMessage.className = "message";
-                        newMessage.innerHTML = `<span class="username">${msg.username}:</span> ${msg.message}`;
-                        chatBox.appendChild(newMessage);
+                        addMessage(msg.id, msg.username, msg.message, username, isAdmin);
                     });
                     chatBox.scrollTop = chatBox.scrollHeight;
                 })
                 .catch(error => {
                     console.error("Ошибка при загрузке сообщений:", error);
                 });
+
+            // Открытие модального окна профиля
+            var modal = document.getElementById('profile-modal');
+            var profileButton = document.getElementById('profile-button');
+            var span = document.getElementsByClassName('close')[0];
+
+            profileButton.onclick = function() {
+                modal.style.display = "block";
+            };
+
+            span.onclick = function() {
+                modal.style.display = "none";
+            };
+
+            window.onclick = function(event) {
+                if (event.target == modal) {
+                    modal.style.display = "none";
+                }
+            };
+
+            // Обновление имени пользователя
+            document.getElementById('update-username-form').addEventListener('submit', function(event) {
+                event.preventDefault();
+                var newUsername = document.getElementById('new-username').value.trim();
+                if (newUsername === '') {
+                    alert("Имя не может быть пустым.");
+                    return;
+                }
+
+                fetch('/update_username', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ new_username: newUsername })
+                }).then(response => response.json())
+                  .then(data => {
+                      if (data.success) {
+                          username = newUsername; // Обновляем имя в клиентской части
+                          modal.style.display = "none"; // Закрываем модальное окно
+                          alert("Имя успешно изменено!");
+                      } else {
+                          alert(data.message);
+                      }
+                  });
+            });
         }
     </script>
 </body>
@@ -398,12 +574,107 @@ CHAT_TEMPLATE = """
 @socketio.on('send_message')
 def handle_message(data):
     save_message(data['username'], data['message'])
-    send({'username': data['username'], 'message': data['message']}, broadcast=True)
+    send({'id': get_last_message_id(), 'username': data['username'], 'message': data['message'], 'current_username': data['username']}, broadcast=True)
+
+def get_last_message_id():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT last_insert_rowid()")
+    message_id = cursor.fetchone()[0]
+    conn.close()
+    return message_id
 
 @app.route('/load_messages')
 def load_messages():
     messages = get_messages()
-    return jsonify({'messages': [{'username': msg[0], 'message': msg[1]} for msg in messages]})
+    return jsonify({'messages': [{'id': msg[0], 'username': msg[1], 'message': msg[2]} for msg in messages]})
+
+@app.route('/delete_message/<int:message_id>', methods=['DELETE'])
+def delete_message_route(message_id):
+    if 'username' not in session:
+        return jsonify({'success': False, 'message': "Вы не авторизованы."}), 401
+
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT username FROM messages WHERE id = ?", (message_id,))
+    result = cursor.fetchone()
+
+    if not result:
+        conn.close()
+        return jsonify({'success': False, 'message': "Сообщение не найдено."}), 404
+
+    message_author = result[0]
+
+    # Администратор может удалять любые сообщения
+    if message_author != session['username'] and session['username'] != "Kasper":
+        conn.close()
+        return jsonify({'success': False, 'message': "Вы не являетесь автором этого сообщения."}), 403
+
+    delete_message(message_id)
+    conn.close()
+    return jsonify({'success': True, 'message': "Сообщение успешно удалено."})
+
+@app.route('/update_message/<int:message_id>', methods=['PUT'])
+def update_message_route(message_id):
+    if 'username' not in session:
+        return jsonify({'success': False, 'message': "Вы не авторизованы."}), 401
+
+    data = request.json
+    new_message = data.get('message')
+
+    if not new_message or new_message.strip() == '':
+        return jsonify({'success': False, 'message': "Новое сообщение не может быть пустым."}), 400
+
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT username FROM messages WHERE id = ?", (message_id,))
+    result = cursor.fetchone()
+
+    if not result:
+        conn.close()
+        return jsonify({'success': False, 'message': "Сообщение не найдено."}), 404
+
+    message_author = result[0]
+
+    # Только автор сообщения может его редактировать
+    if message_author != session['username']:
+        conn.close()
+        return jsonify({'success': False, 'message': "Вы не являетесь автором этого сообщения."}), 403
+
+    update_message(message_id, new_message)
+    conn.close()
+    return jsonify({'success': True, 'message': "Сообщение успешно обновлено."})
+
+@app.route('/update_username', methods=['POST'])
+def update_username():
+    if 'username' not in session:
+        return jsonify({'success': False, 'message': "Вы не авторизованы."}), 401
+
+    data = request.json
+    new_username = data.get('new_username')
+
+    if not new_username or new_username.strip() == '':
+        return jsonify({'success': False, 'message': "Новое имя не может быть пустым."}), 400
+
+    old_username = session['username']
+
+    # Проверяем, что новое имя не занято
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE username = ?", (new_username,))
+    existing_user = cursor.fetchone()
+
+    if existing_user:
+        conn.close()
+        return jsonify({'success': False, 'message': "Имя уже занято."}), 400
+
+    # Обновляем имя в базе данных
+    success = update_username(old_username, new_username)
+    if success:
+        session['username'] = new_username  # Обновляем имя в сессии
+        return jsonify({'success': True, 'message': "Имя успешно обновлено."})
+    else:
+        return jsonify({'success': False, 'message': "Не удалось обновить имя."}), 500
 
 if __name__ == "__main__":
     init_db()
