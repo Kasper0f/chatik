@@ -277,12 +277,29 @@ def save_message(username, message):
     conn.commit()
     conn.close()
 
+# Обновление сообщения в базе данных
+def update_message(message_id, new_message):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE messages SET message = ? WHERE id = ?", (new_message, message_id))
+    conn.commit()
+    conn.close()
+
+# Удаление сообщения по ID
+def delete_message(message_id):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM messages WHERE id = ?", (message_id,))
+    conn.commit()
+    conn.close()
+
 # Обновление имени пользователя в базе данных
 def update_username(old_username, new_username):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     try:
         cursor.execute("UPDATE users SET username = ? WHERE username = ?", (new_username, old_username))
+        cursor.execute("UPDATE messages SET username = ? WHERE username = ?", (new_username, old_username))
         conn.commit()
         return True
     except Exception as e:
@@ -436,7 +453,7 @@ CHAT_TEMPLATE = """
 
         // При получении нового сообщения от сервера
         socket.on('message', function(data) {
-            addMessage(data.id, data.username, data.message, data.current_username, isAdmin);
+            addMessage(data.id, data.username, data.message, username, isAdmin);
         });
 
         // Функция для отправки сообщения
