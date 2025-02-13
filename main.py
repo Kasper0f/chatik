@@ -113,7 +113,6 @@ def register():
                 border: none;
                 border-radius: 5px;
                 cursor: pointer;
-                font-size: 16px;
             }
             button:hover {
                 background-color: #512da8;
@@ -211,7 +210,6 @@ def login_page():
                 border: none;
                 border-radius: 5px;
                 cursor: pointer;
-                font-size: 16px;
             }
             button:hover {
                 background-color: #512da8;
@@ -275,7 +273,9 @@ def save_message(username, message):
     cursor.execute("INSERT INTO messages (username, message, timestamp) VALUES (?, ?, ?)",
                    (username, message, datetime.now()))
     conn.commit()
+    message_id = cursor.lastrowid  # Получаем ID только что добавленного сообщения
     conn.close()
+    return message_id
 
 # Обновление сообщения в базе данных
 def update_message(message_id, new_message):
@@ -456,6 +456,12 @@ CHAT_TEMPLATE = """
             addMessage(data.id, data.username, data.message, username, isAdmin);
         });
 
+        // При получении обновления имени пользователя
+        socket.on('update_username', function(newUsername) {
+            username = newUsername; // Обновляем имя пользователя в клиентской части
+            alert("Ваше имя успешно обновлено!");
+        });
+
         // Функция для отправки сообщения
         function sendMessage() {
             var messageInput = document.getElementById('message-input');
@@ -467,20 +473,20 @@ CHAT_TEMPLATE = """
         }
 
         // Добавление сообщения в чат
-        function addMessage(id, username, message, current_username, isAdmin) {
+        function addMessage(id, msgUsername, message, current_username, isAdmin) {
             var newMessage = document.createElement('div');
             newMessage.className = "message";
             newMessage.dataset.id = id;
 
             var messageContent = document.createElement('span');
-            messageContent.innerHTML = `<span class="username">${username}:</span> ${message}`;
+            messageContent.innerHTML = `<span class="username">${msgUsername}:</span> ${message}`;
             newMessage.appendChild(messageContent);
 
             var actionsDiv = document.createElement('div');
             actionsDiv.className = "message-actions";
 
             // Кнопка "Изменить" доступна только автору сообщения
-            if (username === current_username) {
+            if (msgUsername === current_username) {
                 var editButton = document.createElement('button');
                 editButton.className = "edit-button";
                 editButton.textContent = "Изменить";
@@ -494,7 +500,9 @@ CHAT_TEMPLATE = """
                         }).then(response => response.json())
                           .then(data => {
                               if (data.success) {
-                                  messageContent.textContent = `${username}: ${newMessageText}`;
+                                  messageContent.textContent = `${msgUsername}: ${newMessageText}`;
+                              } else {
+                                  alert(data.message);
                               }
                           });
                     }
@@ -503,7 +511,7 @@ CHAT_TEMPLATE = """
             }
 
             // Кнопка "Удалить" доступна автору сообщения или администратору
-            if (username === current_username || isAdmin) {
+            if (msgUsername === current_username || isAdmin) {
                 var deleteButton = document.createElement('button');
                 deleteButton.className = "delete-button";
                 deleteButton.textContent = "Удалить";
@@ -513,6 +521,8 @@ CHAT_TEMPLATE = """
                         .then(data => {
                             if (data.success) {
                                 newMessage.remove();
+                            } else {
+                                alert(data.message);
                             }
                         });
                 };
@@ -574,9 +584,7 @@ CHAT_TEMPLATE = """
                 }).then(response => response.json())
                   .then(data => {
                       if (data.success) {
-                          username = newUsername; // Обновляем имя в клиентской части
                           modal.style.display = "none"; // Закрываем модальное окно
-                          alert("Имя успешно изменено!");
                       } else {
                           alert(data.message);
                       }
@@ -590,16 +598,8 @@ CHAT_TEMPLATE = """
 
 @socketio.on('send_message')
 def handle_message(data):
-    save_message(data['username'], data['message'])
-    send({'id': get_last_message_id(), 'username': data['username'], 'message': data['message'], 'current_username': data['username']}, broadcast=True)
-
-def get_last_message_id():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT last_insert_rowid()")
-    message_id = cursor.fetchone()[0]
-    conn.close()
-    return message_id
+    message_id = save_message(data['username'], data['message'])  # Сохраняем сообщение и получаем его ID
+    send({'id': message_id, 'username': data['username'], 'message': data['message']}, broadcast=True)
 
 @app.route('/load_messages')
 def load_messages():
@@ -689,6 +689,7 @@ def update_username():
     success = update_username(old_username, new_username)
     if success:
         session['username'] = new_username  # Обновляем имя в сессии
+        socketio.emit('update_username', new_username)  # Отправляем новое имя всем через WebSocket
         return jsonify({'success': True, 'message': "Имя успешно обновлено."})
     else:
         return jsonify({'success': False, 'message': "Не удалось обновить имя."}), 500
