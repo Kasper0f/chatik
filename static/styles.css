@@ -303,3 +303,23 @@ button:hover {
         margin-top: 10px;
     }
 }
+/* Кнопка администратора */
+.admin-button {
+    display: inline-block;
+    margin-top: 20px;
+    padding: 10px 20px;
+    background: linear-gradient(135deg, #ff6f61, #ff9a8b);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+}
+
+.admin-button:hover {
+    background: linear-gradient(135deg, #ff9a8b, #ff6f61);
+    transform: scale(1.05);
+    box-shadow: 0 6px 10px rgba(0, 0, 0, 0.3);
+}
